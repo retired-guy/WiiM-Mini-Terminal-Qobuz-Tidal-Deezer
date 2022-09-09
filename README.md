@@ -19,11 +19,13 @@ Install Python requirement packages:
 
 pip3 install -r requirements.txt
 
-
+Tidal (wmt):
 ![photo](https://raw.githubusercontent.com/retired-guy/WiiM-Mini-Terminal-Qobuz-Tidal-Deezer/main/Screenshot%202022-09-09%202.05.41%20PM.png)
 
+Qobuz (wmq):
 ![photo](https://raw.githubusercontent.com/retired-guy/WiiM-Mini-Terminal-Qobuz-Tidal-Deezer/main/Screenshot%202022-09-09%202.05.31%20PM.png)
 
+Deezer (wmd):
 ![photo](https://raw.githubusercontent.com/retired-guy/WiiM-Mini-Terminal-Qobuz-Tidal-Deezer/main/Screenshot%202022-09-09%202.05.21%20PM.png)
 
 
