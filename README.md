@@ -1,15 +1,21 @@
 # WiiM-Mini-Terminal-Qobuz-Tidal-Deezer
-Simple client apps for Qobuz, Tidal and Deezer to play to WiiM Mini from Linux terminal
+Simple client apps for Qobuz, Tidal and Deezer to play to WiiM Mini from Linux terminal.  Tested on ChromeOS and Raspberry Pi OS.
 
-Modify wiim.ini file with your WiiM Mini's ip address, and copy to ~/.config/wiim/wiim.ini
+Modify wiim.ini file with your WiiM Mini's ip address, and copy to ~/.config/wiim/wiim.ini:
 
 mkdir ~/.config/wiim
 
 cp wiim.ini ~/.config/wiim
 
+Make the files executable:
+
 chmod +x wm?
 
+Copy the files to local/bin directory:
+
 cp wm? ~/.local/bin
+
+Install Python requirement packages:
 
 pip3 install -r requirements.txt
 
