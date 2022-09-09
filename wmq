@@ -1,0 +1,390 @@
+#!/usr/bin/env python3
+
+import argparse
+import upnpclient
+import json
+import xmltodict
+import datetime
+import requests
+import os, sys
+import re
+import textwrap as tr 
+from configparser import ConfigParser
+from pydoc import pager
+from simple_term_menu import TerminalMenu
+from threading import Thread
+from time import sleep
+
+def print_there(x, y, text):
+    try:
+        sys.stdout.write("\x1b7\x1b[%d;%df%s\x1b8" % (x, y, text))
+        sys.stdout.flush()
+    except:
+        pass
+    
+def get_nowplaying():
+
+    dev = conf["dev"]
+    max_lines=conf["lines"] - 15
+    max_cols = conf["columns"] - 5
+    old_title = ""
+    blanks = ' ' * max_cols
+    
+    while True:
+        try:
+            ret = dev.AVTransport.GetMediaInfo(InstanceID=0)
+            meta = ret["CurrentURIMetaData"]
+            track = xmltodict.parse(meta)["DIDL-Lite"]["item"]
+            artist = track["upnp:artist"]
+            album = track["upnp:album"]
+            title = track["dc:title"]
+        except:
+            sleep(3)
+            continue
+
+        s = f'{artist} - {album}: {title}' 
+        if mainMenu == True:    
+            print_there(13,1,blanks)
+            print_there(13,1,s[0:max_cols])
+            if ret['TrackSource'] != "Qobuz":
+                sleep(1)
+                continue
+
+            if title != old_title:
+                old_title = title
+                track_id = track["song:id"]
+                text = get_text(node="review",track_id=track_id,max_lines=max_lines)
+                if text == "":
+                    for i in range(0,max_lines):
+                        print_there(15+i,1,blanks)
+
+                print_there(15,1,text)
+        else:
+            old_title = ""
+                
+        sleep(1)
+    
+def do_stop():
+          
+    dev = conf["dev"]
+          
+    #### Stop the WiiM Mini
+    try:
+        dev.AVTransport.Stop(InstanceID=0)
+    except:
+        pass  
+
+def do_prev():
+          
+    dev = conf["dev"]
+          
+    #### Previous 
+    try:
+        dev.AVTransport.Previous(InstanceID=0)
+    except:
+        pass
+
+def do_next():
+          
+    dev = conf["dev"]
+          
+    #### Previous 
+    try:
+        dev.AVTransport.Next(InstanceID=0)
+    except:
+        pass
+          
+          
+def do_pause():
+          
+    dev = conf["dev"]
+          
+    #### Pause the WiiM Mini
+    try:
+        dev.AVTransport.Pause(InstanceID=0)
+    except:
+        pass
+
+def do_play():
+          
+    dev = conf["dev"]
+          
+    #### Play the WiiM Mini
+    try:      
+        dev.AVTransport.Play(InstanceID=0,Speed='1')
+    except:
+        pass
+          
+def do_play_query(query):
+
+    dev=conf['dev']
+    app_id=conf['app_id']
+                
+    url=f'https://www.qobuz.com/api.json/0.2/album/search?query={query}&limit=10&offset=0&app_id={app_id}'
+
+    ret = requests.get(url).json()
+    albums = ret["albums"]["items"]
+
+    list_name=albums[0]["title"].replace("&","&amp;")
+    album_id=albums[0]["id"]
+    user_auth_token=conf["user_auth_token"]
+    Login_username=conf["Login_username"]
+        
+    xml = f'<?xml version="1.0"?> <PlayList> <ListName>{list_name}</ListName> <ListInfo> <SourceName>Qobuz</SourceName> <SearchUrl>https://www.qobuz.com/api.json/0.2/album/get?album_id={album_id}&amp;app_id={app_id}&amp;offset=0&amp;limit=500&amp;user_auth_token={user_auth_token}</SearchUrl> <Login_username>{Login_username}</Login_username></ListInfo></PlayList>'
+    
+    #### Stop the WiiM Mini
+    dev.AVTransport.Stop(InstanceID=0)
+
+    #### Populate the WiiM Queue
+    dev.PlayQueue.CreateQueue(QueueContext=xml) 
+
+    #### Play
+    dev.PlayQueue.PlayQueueWithIndex(QueueName=list_name,Index=0)
+
+    #print("Playing",title)
+
+def from_title(meta):
+    
+    max_lines=conf["lines"] - 18
+    max_cols=conf["columns"] - 5
+    
+    if not "^" in meta:
+        list = meta.split("~")
+        txt = "    ".join(list[2:])
+    
+        review = get_text(node="review",album_id=list[0],max_lines=max_lines)
+    
+        return(txt + "\n\n" + review)
+    else:
+        list = meta.strip('\'}][{ ').split('^')
+        txt = "    ".join(list[0:2])
+        
+        text = list[2]
+        text = text.replace("<br>","\n")
+        text = text.replace("<br />","\n")
+        text = re.sub("[\<].*?[\>]", " ", text)
+        text = re.sub(r'[^\x00-\x7F]+','', text)
+
+        lines = tr.wrap(text,width=max_cols)
+        
+
+        if max_lines <= 0:
+            max_lines = 1
+        if max_lines > len(lines):
+            max_lines = len(lines)
+                 
+        text='\n'.join(lines[0:max_lines-1])
+        
+        return(txt + "\n\n" + text)    
+ 
+def do_search(query="",node="album"):
+    
+    dev=conf['dev']
+    app_id=conf['app_id']
+                
+    url=f'https://www.qobuz.com/api.json/0.2/{node}/search?query={query}&limit=100&offset=0&app_id={app_id}'
+    try:
+        ret = requests.get(url).json()
+        items = ret[f"{node}s"]["items"]
+    except:
+        return ""
+    
+    options=[]
+    idx=1
+    for item in items:
+        if node=="album":
+            preview=[str(item["id"]),str(item["artist"]["id"]),f'Tracks: {item["tracks_count"]}',f'Released: {item["release_date_original"]}', f'Quality: {item["maximum_bit_depth"]}/{item["maximum_sampling_rate"]}']
+            preview="~".join(preview)
+        
+            option = f'{idx} {item["artist"]["name"]} - {item["title"]}|{preview}'
+        else:
+            preview=f'{item["name"]}^Tracks: {item["tracks_count"]}^{item["description"]}'
+            option = f'{idx} {item["name"]}|{preview}'
+                                         
+        options.append(option)
+        idx = idx+1
+        
+        
+    terminal_menu = TerminalMenu(options,
+                                 clear_screen=True,
+                                 title="Enter:Play Esc:Exit", 
+                                 preview_command=from_title,
+                                 preview_size=0.5)
+                                 
+    menu_entry_index = terminal_menu.show()
+                 
+    if menu_entry_index == None:
+        return
+    else:
+        if node=="album":             
+            list_name=items[menu_entry_index]["title"].replace("&","&amp;")
+            extra=""         
+        else:
+            list_name=items[menu_entry_index]["name"].replace("&","&amp;")
+            extra="&amp;extra=tracks"         
+                     
+        item_id=items[menu_entry_index]["id"]
+        user_auth_token=conf["user_auth_token"]
+        Login_username=conf["Login_username"]
+        
+        xml = f'<?xml version="1.0"?> <PlayList> <ListName>{list_name}</ListName> <ListInfo> <SourceName>Qobuz</SourceName> <SearchUrl>https://www.qobuz.com/api.json/0.2/{node}/get?{node}_id={item_id}{extra}&amp;app_id={app_id}&amp;offset=0&amp;limit=500&amp;user_auth_token={user_auth_token}</SearchUrl> <Login_username>{Login_username}</Login_username></ListInfo></PlayList>'
+
+        #### Stop the WiiM Mini
+        dev.AVTransport.Stop(InstanceID='0')
+
+        #### Populate the WiiM Queue
+        dev.PlayQueue.CreateQueue(QueueContext=xml) 
+
+        #### Play
+        dev.PlayQueue.PlayQueueWithIndex(QueueName=list_name,Index=0)
+
+        #print("Playing:",albums[menu_entry_index]["artist"]["name"],"-",albums[menu_entry_index]["title"])
+
+def get_text(node="review",album_id=0,artist_id=0,track_id=0,max_lines=0):
+                 
+    app_id=conf["app_id"]
+    max_cols=conf["columns"]-5                 
+
+    if album_id==0 and artist_id==0:
+        if track_id==0:         
+            dev = conf["dev"]
+            ret = dev.AVTransport.GetMediaInfo(InstanceID=0)
+            meta = ret["CurrentURIMetaData"]
+            track = xmltodict.parse(meta)["DIDL-Lite"]["item"]
+            track_id = track["song:id"]
+                 
+        try:
+            url=f'https://www.qobuz.com/api.json/0.2/track/get?track_id={track_id}&app_id={app_id}'
+            ret = requests.get(url).json()
+            artist_id = ret['album']['artist']['id']
+            album_id = ret['album']['id']
+        except:
+            pass
+                 
+    elif node not in ["review","bio"]:
+        node="review"
+        
+    try:
+        if node == "review":
+            if track_id != 0:     
+                url=f'https://www.qobuz.com/api.json/0.2/track/get?track_id={track_id}&app_id={app_id}'
+            elif album_id != 0:     
+                url=f'https://www.qobuz.com/api.json/0.2/album/get?album_id={album_id}&app_id={app_id}'
+        elif node == "bio":
+            url= f'https://www.qobuz.com/api.json/0.2/artist/get?artist_id={artist_id}&app_id={app_id}' 
+        else:
+            return("")
+        
+        ret = requests.get(url).json()
+                 
+        if track_id != 0 and node=="review":         
+            text = ret['album']['description']
+        elif album_id != 0 and node=="review":
+            text = ret['description']
+        elif artist_id != 0 and node=="bio":
+            text = ret['biography']['content']     
+                 
+        text = re.sub("[\[\<].*?[\]\>]", "", text)
+        text = re.sub(r'[^\x00-\x7F]+','', text)
+                     
+        text = text.replace("<br/>","\n")
+        text = text.replace("<br />","\n")             
+        text = text.replace("<br>","\n")
+        text = text.replace("<br />","\n")
+                     
+        lines = tr.wrap(text,width=max_cols)
+        if max_lines == 0:
+            max_lines = len(lines)
+        if max_lines > len(lines):
+            max_lines = len(lines)
+                 
+        text='\n'.join(lines[0:max_lines-1])
+                     
+        return(text)
+    except Exception as e:
+        return(e)
+
+def main():
+    global conf
+    global mainMenu
+    
+    home_dir = os.path.expanduser('~')
+    config_file = os.path.join(home_dir,'.config/wiim/wiim.ini')
+    config = ConfigParser()
+    config.read(config_file)
+
+    conf = {}
+    conf['app_id']=config['QOBUZ']['app_id']
+    conf['description_url'] = config['WIIM']['description_url'] 
+    conf['dev'] = upnpclient.Device(conf["description_url"])
+
+    ######### Get user info from WiiM Mini #########################
+    res = conf['dev'].PlayQueue.GetUserInfo(AccountSource="Qobuz")["Result"]
+    info = json.loads(res)
+    conf['user_auth_token'] = info["user_auth_token"]
+    conf['Login_username'] = info["user"]["email"]
+    ################################################################
+                 
+    size = os.get_terminal_size()
+    conf['columns'] = size.columns
+    conf['lines'] = size.lines
+                 
+    thread = Thread(target=get_nowplaying)
+    thread.daemon = True             
+    thread.start()
+
+    while True:   
+        mainMenu = True  
+        options = ["[a] Album Search", "[l] Playlist Search", "[b] Bio", "[r] Review", "[t] PlayThis", "[v] Prev", "[u] Pause", "[p] Play", "[n] Next", "[o] Stop", "[x] Exit"]
+        terminal_menu = TerminalMenu(options,clear_screen=True,title="")
+                 
+        menu_entry_index = terminal_menu.show()
+        mainMenu = False         
+
+        if menu_entry_index == 2:
+            text = get_text(node="bio")
+            if text != "":
+                pager(text)
+
+
+        elif menu_entry_index == 3:
+            text = get_text(node="review")
+            if text != "":
+                pager(text)
+
+        elif menu_entry_index == 0:
+            query = input("Search: ")
+            if query != "":
+                do_search(query=query,node="album")
+
+        elif menu_entry_index == 1:
+            query = input("Search: ")
+            if query != "":
+                do_search(query=query,node="playlist")
+                 
+        elif menu_entry_index == 4:
+             query = input("Artist Album: ")
+             if len(query.split()) > 3:
+                do_play_query(query)
+
+        elif menu_entry_index == 5:
+            do_prev()
+        
+        elif menu_entry_index == 6:
+            do_pause()
+                 
+        elif menu_entry_index == 7:
+            do_play()
+                 
+        elif menu_entry_index == 8:
+            do_next()
+                 
+        elif menu_entry_index == 9:
+            do_stop()
+                 
+        else:
+            exit(0)
+
+if __name__ == "__main__":
+    main()
+    
