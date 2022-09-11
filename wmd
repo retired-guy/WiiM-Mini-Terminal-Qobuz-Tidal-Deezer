@@ -133,7 +133,7 @@ def do_play_query(query):
 
         album_id=albums[0]["album"]["id"]
         title=albums[0]["album"]["title"]
-        list_name=title.replace('&','&amp;')[0:15]
+        list_name=title.replace('&',' ')[0:15]
 
         xml = f'<?xml version="1.0"?> <PlayList> <ListName>{list_name}</ListName> <ListInfo> <SourceName>Deezer</SourceName> <SearchUrl>https://6049816327.airable.io/id/deezer/album/{album_id}</SearchUrl><Login_username>{Login_username}</Login_username> </ListInfo> <Tracks></Tracks> </PlayList>'
     except:
@@ -189,7 +189,7 @@ def do_search(query="",node="album"):
     if menu_entry_index == None:
         return
     else:
-        list_name=items[menu_entry_index]["title"].replace("&","&amp;")[0:15]
+        list_name=items[menu_entry_index]["title"].replace("&"," ")[0:15]
                      
         item_id=items[menu_entry_index]["id"]
         Login_username=conf["Login_username"]

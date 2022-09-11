@@ -123,7 +123,7 @@ def do_play_query(query):
 
     album_id=albums[0]["id"]
     title=albums[0]["title"]
-    list_name=title.replace('&','&amp;')
+    list_name=title.replace('&','&amp;')[0:15]
 
     xml = f'<?xml version="1.0"?><PlayList><ListName>{list_name}</ListName><ListInfo><SourceName>Tidal</SourceName><SearchUrl>https://api.tidal.com/v1/albums/{album_id}/tracks?countryCode={conf["country_code"]}&amp;offset=0&amp;limit=50</SearchUrl> <requestQuality>LOSSLESS</requestQuality></ListInfo></PlayList>'
 
@@ -139,27 +139,59 @@ def do_play_query(query):
     #print("Playing",title)
 
 def from_title(meta):
-    global conf
-    list = meta.split("~")
-    txt = "    ".join(list[2:])
+    max_lines=conf["lines"] - 18
+    max_cols=conf["columns"] - 5
     
-    review = get_text(node="review",album_id=list[0])
+    if not "^" in meta:
+        list = meta.split("~")
+        txt = "    ".join(list[2:])
     
-    return(txt + "\n\n" + review)
+        review = get_text(node="review",album_id=list[0],max_lines=max_lines)
+    
+        return(txt + "\n\n" + review)
+    else:
+        #list = meta.strip('\'}][{ ').split('^')
+        list = meta.split('^')
+        txt = "    ".join(list[0:2])
+        
+        text = list[2]
+        text = text.replace("<br>","\n")
+        text = text.replace("<br />","\n")
+        #text = re.sub("[\<].*?[\>]", " ", text)
+        #text = re.sub(r'[^\x00-\x7F]+','', text)
+
+        lines = tr.wrap(text,width=max_cols)
+        
+
+        if max_lines <= 0:
+            max_lines = 1
+        if max_lines > len(lines):
+            max_lines = len(lines)
+                 
+        text='\n'.join(lines[0:max_lines-1])
+        
+        return(txt + "\n\n" + text)    
+    
  
-def do_search(query):
+def do_search(query="",node="album"):
     
     dev=conf['dev']
-    url = f'https://api.tidal.com/v1/search/albums?countryCode={conf["country_code"]}&query={query}&limit=100'
+    url = f'https://api.tidal.com/v1/search/{node}s?countryCode={conf["country_code"]}&query={query}&limit=100'
     ret = requests.get(url=url,headers=conf["headers"]).json()
-    albums = ret["items"]
+    items = ret["items"]
     options=[]
     idx=1
-    for album in albums:
-        preview=[str(album["id"]),str(album["artist"]["id"]),f'Tracks: {album["numberOfTracks"]}',f'Released: {album["releaseDate"]}', f'Quality: {album["audioQuality"]}']
-        preview="~".join(preview)
-        
-        option = f'{idx} {album["artist"]["name"]} - {album["title"]}|{preview}'
+    for item in items:
+        if node == "album":
+            preview=[str(item["id"]),str(item["artist"]["id"]),f'Tracks: {item["numberOfTracks"]}',f'Released: {item["releaseDate"]}', f'Quality: {item["audioQuality"]}']
+            preview="~".join(preview)
+            option = f'{idx} {item["artist"]["name"]} - {item["title"]}|{preview}'
+        elif node == "playlist":
+            preview=f'{item["title"]}^Tracks: {item["numberOfTracks"]}^{item["description"]}'
+            option = f'{idx} {item["title"]}|{preview}'
+        else:
+            return
+                     
         options.append(option)
         idx = idx+1
         
@@ -173,23 +205,31 @@ def do_search(query):
     menu_entry_index = terminal_menu.show()
                  
     if menu_entry_index == None:
-        return
+        return("")
     else:
-        list_name=albums[menu_entry_index]["title"].replace("&","&amp;")
-        album_id=albums[menu_entry_index]["id"]
+        list_name=items[menu_entry_index]["title"].replace("&"," ")[0:15]
+        tracks=items[menu_entry_index]["numberOfTracks"]   
+        pages = (tracks // 50) + 1             
+        if node == "album":             
+            item_id=items[menu_entry_index]["id"]
+        else:
+            item_id=items[menu_entry_index]["uuid"]
         
-        xml = f'<?xml version="1.0"?><PlayList><ListName>{list_name}</ListName><ListInfo><SourceName>Tidal</SourceName><SearchUrl>https://api.tidal.com/v1/albums/{album_id}/tracks?countryCode={conf["country_code"]}&amp;offset=0&amp;limit=50</SearchUrl> <requestQuality>LOSSLESS</requestQuality></ListInfo></PlayList>'
+        xml = f'<?xml version="1.0"?><PlayList><ListName>{list_name}</ListName><ListInfo><SourceName>Tidal</SourceName><SearchUrl>https://api.tidal.com/v1/{node}s/{item_id}/tracks?countryCode={conf["country_code"]}&amp;offset=0&amp;limit=50</SearchUrl> <MaxTrackNumber>{tracks}</MaxTrackNumber><requestQuality>LOSSLESS</requestQuality><SwitchPageMode>0</SwitchPageMode> <CurrentPage>1</CurrentPage> <TotalPages>{pages}</TotalPages></ListInfo></PlayList>'
+                     
+        try:
+            #### Stop the WiiM Mini
+            dev.AVTransport.Stop(InstanceID='0')
 
-        #### Stop the WiiM Mini
-        dev.AVTransport.Stop(InstanceID='0')
+            #### Populate the WiiM Queue
+            dev.PlayQueue.CreateQueue(QueueContext=xml) 
 
-        #### Populate the WiiM Queue
-        dev.PlayQueue.CreateQueue(QueueContext=xml) 
-
-        #### Play
-        dev.PlayQueue.PlayQueueWithIndex(QueueName=list_name,Index=0)
-
-        #print("Playing:",albums[menu_entry_index]["artist"]["name"],"-",albums[menu_entry_index]["title"])
+            #### Play
+            dev.PlayQueue.PlayQueueWithIndex(QueueName=list_name,Index=0)
+        except Exception as e:
+            print(e)
+            print(xml)         
+            x=input("Press <Enter> to continue...")
 
 def get_text(node="",album_id=0,artist_id=0,track_id=0,max_lines=0):
 
@@ -203,12 +243,6 @@ def get_text(node="",album_id=0,artist_id=0,track_id=0,max_lines=0):
             track = xmltodict.parse(meta)["DIDL-Lite"]["item"]
             track_id = track["song:id"]
                  
-            #obj = dev.AVTransport.GetMediaInfo(InstanceID='0')
-            #meta = obj['CurrentURIMetaData']
-
-            #track = json.dumps(meta).split('<song:id>')[1]
-            #track_id = track.split('</song:id>')[0]
-
         try:
             url= f'https://api.tidal.com/v1/tracks/{track_id}?countryCode={conf["country_code"]}'
             ret = requests.get(url,headers=conf["headers"]).json()
@@ -270,46 +304,62 @@ def main():
 
     while True:   
         mainMenu = True  
-        options = ["[s] Search", "[b] Bio", "[r] Review", "[t] PlayThis", "[v] Prev", "[u] Pause", "[p] Play", "[n] Next", "[o] Stop", "[x] Exit"]
+        options = ["[a] Album Search", 
+                   "[l] Playlist Search",
+                   "[b] Bio", 
+                   "[r] Review", 
+                   "[t] PlayThis", 
+                   "[v] Prev", 
+                   "[u] Pause", 
+                   "[p] Play", 
+                   "[n] Next", 
+                   "[o] Stop", 
+                   "[x] Exit"]
+                     
         terminal_menu = TerminalMenu(options,clear_screen=True,title="")
                  
         menu_entry_index = terminal_menu.show()
         mainMenu = False         
 
-        if menu_entry_index == 1:
+        if menu_entry_index == 0:
+            query = input("Search: ")
+            if query != "":
+                do_search(query=query,node="album")
+
+        elif menu_entry_index == 1:
+            query = input("Search: ")
+            if query != "":
+                do_search(query=query,node="playlist")
+
+        elif menu_entry_index == 2:
             text = get_text("bio")
             if text != "":
                 pager(text)
 
 
-        elif menu_entry_index == 2:
+        elif menu_entry_index == 3:
             text = get_text("review")
             if text != "":
                 pager(text)
 
-        elif menu_entry_index == 0:
-            query = input("Search: ")
-            if query != "":
-                do_search(query)
-
-        elif menu_entry_index == 3:
+        elif menu_entry_index == 4:
              query = input("Artist Album: ")
              if len(query.split()) > 3:
                 do_play_query(query)
 
-        elif menu_entry_index == 4:
+        elif menu_entry_index == 5:
             do_prev()
         
-        elif menu_entry_index == 5:
+        elif menu_entry_index == 6:
             do_pause()
                  
-        elif menu_entry_index == 6:
+        elif menu_entry_index == 7:
             do_play()
                  
-        elif menu_entry_index == 7:
+        elif menu_entry_index == 8:
             do_next()
                  
-        elif menu_entry_index == 8:
+        elif menu_entry_index == 9:
             do_stop()
                  
         else:

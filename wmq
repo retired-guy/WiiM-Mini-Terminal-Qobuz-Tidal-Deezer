@@ -125,7 +125,7 @@ def do_play_query(query):
     ret = requests.get(url).json()
     albums = ret["albums"]["items"]
 
-    list_name=albums[0]["title"].replace("&","&amp;")
+    list_name=albums[0]["title"].replace("&","&amp;")[0:15]
     album_id=albums[0]["id"]
     user_auth_token=conf["user_auth_token"]
     Login_username=conf["Login_username"]
@@ -217,10 +217,10 @@ def do_search(query="",node="album"):
         return
     else:
         if node=="album":             
-            list_name=items[menu_entry_index]["title"].replace("&","&amp;")
+            list_name=items[menu_entry_index]["title"].replace("&"," ")[0:15]
             extra=""         
         else:
-            list_name=items[menu_entry_index]["name"].replace("&","&amp;")
+            list_name=items[menu_entry_index]["name"].replace("&"," ")[0:15]
             extra="&amp;extra=tracks"         
                      
         item_id=items[menu_entry_index]["id"]
@@ -335,7 +335,18 @@ def main():
 
     while True:   
         mainMenu = True  
-        options = ["[a] Album Search", "[l] Playlist Search", "[b] Bio", "[r] Review", "[t] PlayThis", "[v] Prev", "[u] Pause", "[p] Play", "[n] Next", "[o] Stop", "[x] Exit"]
+        options = ["[a] Album Search", 
+                   "[l] Playlist Search", 
+                   "[b] Bio", 
+                   "[r] Review", 
+                   "[t] PlayThis", 
+                   "[v] Prev", 
+                   "[u] Pause", 
+                   "[p] Play", 
+                   "[n] Next", 
+                   "[o] Stop", 
+                   "[x] Exit"]
+                    
         terminal_menu = TerminalMenu(options,clear_screen=True,title="")
                  
         menu_entry_index = terminal_menu.show()
